@@ -8,7 +8,7 @@ const THEME = {
     border:"#F0E6E0",border2:"#E8D5CE",
     text:"#1C1412",text2:"#5D4037",text3:"#9E8070",
     rose:"#C2185B",roseBg:"#FCE4EC",gold:"#B8860B",
-    heroGrad:"linear-gradient(135deg,rgba(123,13,62,0.82) 0%,rgba(194,24,91,0.75) 45%,rgba(136,14,79,0.85) 100%),url('/src/assets/image/background.png') center center / cover no-repeat",
+    heroGrad:"linear-gradient(135deg,rgba(123,13,62,0.82) 0%,rgba(194,24,91,0.75) 45%,rgba(136,14,79,0.85) 100%),url('/image/background.png') center center / cover no-repeat",
   },
   dark:{
     bg:"#0D0812",bg2:"#130D1C",surface:"#1A1228",surface2:"#221830",
@@ -217,7 +217,7 @@ const S = {
   navLinks:{display:"flex",gap:8,alignItems:"center"},
   navBtn:(a)=>({padding:"8px 16px",borderRadius:24,border:a?"1.5px solid #C2185B":"1.5px solid transparent",background:a?"#FCE4EC":"transparent",color:a?"#C2185B":"#8D6E63",cursor:"pointer",fontSize:14,fontWeight:500,fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s"}),
   writeBtn:{padding:"9px 20px",borderRadius:24,background:"linear-gradient(135deg,#C2185B,#E91E63)",border:"none",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:500,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8,transition:"all 0.2s"},
-  hero:{background:"linear-gradient(135deg,rgba(123,13,62,0.82) 0%,rgba(194,24,91,0.75) 45%,rgba(136,14,79,0.85) 100%),url('/src/assets/image/background.png') center center / cover no-repeat",padding:"64px 24px 72px",position:"relative",overflow:"hidden"},
+  hero:{background:"linear-gradient(135deg,rgba(123,13,62,0.82) 0%,rgba(194,24,91,0.75) 45%,rgba(136,14,79,0.85) 100%),url('/image/background.png') center center / cover no-repeat",padding:"64px 24px 72px",position:"relative",overflow:"hidden"},
   heroInner:{maxWidth:1100,margin:"0 auto",position:"relative",zIndex:1},
   heroLabel:{fontSize:12,color:"rgba(255,255,255,0.65)",letterSpacing:1,textTransform:"uppercase",marginBottom:12},
   heroTitle:{fontFamily:"'Playfair Display',serif",fontSize:"clamp(32px,5vw,56px)",color:"#fff",lineHeight:1.15,marginBottom:16,maxWidth:640},
