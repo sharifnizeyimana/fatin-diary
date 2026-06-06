@@ -316,11 +316,11 @@ export default function HanaDiary() {
   const natureAudioRef = useRef(null);
 
   useEffect(()=>{
-    rainAudioRef.current = new Audio("/src/assets/audio/rain.mp3");
+    rainAudioRef.current = new Audio("/audio/rain.mp3");
     rainAudioRef.current.loop = true;
-    coffeeAudioRef.current = new Audio("/src/assets/audio/coffee.mp3");
+    coffeeAudioRef.current = new Audio("/audio/coffee.mp3");
     coffeeAudioRef.current.loop = true;
-    natureAudioRef.current = new Audio("/src/assets/audio/nature.mp3");
+    natureAudioRef.current = new Audio("/audio/nature.mp3");
     natureAudioRef.current.loop = true;
     return ()=>{ rainAudioRef.current?.pause(); coffeeAudioRef.current?.pause(); natureAudioRef.current?.pause(); };
   },[]);
