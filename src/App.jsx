@@ -36,6 +36,8 @@ const injectFonts = () => {
     .hana-orb{animation:hanaOrb 5s ease-in-out infinite;}
     @keyframes rainfall{from{transform:translateY(-150px)}to{transform:translateY(110vh)}}
     @keyframes steamrise{0%{transform:translateY(0);opacity:0.4}100%{transform:translateY(-40px);opacity:0}}
+    @keyframes leaffall{0%{transform:translateY(-30px) translateX(0) rotate(0deg);opacity:0}10%{opacity:0.75}85%{opacity:0.5}100%{transform:translateY(110vh) translateX(60px) rotate(420deg);opacity:0}}
+    @keyframes leafsway{0%,100%{margin-left:0}25%{margin-left:18px}75%{margin-left:-18px}}
   `;
   document.head.appendChild(s);
 };
@@ -311,13 +313,16 @@ export default function HanaDiary() {
   useEffect(()=>{document.body.style.background=darkMode?"#0D0812":"#FFFDF7";},[darkMode]);
   const rainAudioRef = useRef(null);
   const coffeeAudioRef = useRef(null);
+  const natureAudioRef = useRef(null);
 
   useEffect(()=>{
     rainAudioRef.current = new Audio("/src/assets/audio/rain.mp3");
     rainAudioRef.current.loop = true;
     coffeeAudioRef.current = new Audio("/src/assets/audio/coffee.mp3");
     coffeeAudioRef.current.loop = true;
-    return ()=>{ rainAudioRef.current?.pause(); coffeeAudioRef.current?.pause(); };
+    natureAudioRef.current = new Audio("/src/assets/audio/nature.mp3");
+    natureAudioRef.current.loop = true;
+    return ()=>{ rainAudioRef.current?.pause(); coffeeAudioRef.current?.pause(); natureAudioRef.current?.pause(); };
   },[]);
 
   const toggleAmbient = (mode) => {
@@ -325,8 +330,10 @@ export default function HanaDiary() {
       const next = prev === mode ? null : mode;
       if(prev==="rain"){ rainAudioRef.current?.pause(); if(rainAudioRef.current) rainAudioRef.current.currentTime=0; }
       if(prev==="coffee"){ coffeeAudioRef.current?.pause(); if(coffeeAudioRef.current) coffeeAudioRef.current.currentTime=0; }
+      if(prev==="nature"){ natureAudioRef.current?.pause(); if(natureAudioRef.current) natureAudioRef.current.currentTime=0; }
       if(next==="rain") rainAudioRef.current?.play().catch(()=>{});
       if(next==="coffee") coffeeAudioRef.current?.play().catch(()=>{});
+      if(next==="nature") natureAudioRef.current?.play().catch(()=>{});
       return next;
     });
   };
@@ -400,7 +407,8 @@ export default function HanaDiary() {
     <div style={{...S.app,background:t.bg,color:t.text,transition:"background 0.4s ease,color 0.4s ease"}}>
       {ambientMode==="rain"&&<RainOverlay/>}
       {ambientMode==="coffee"&&<CoffeeOverlay/>}
-      <div style={{filter:ambientMode==="rain"?"brightness(0.94) saturate(0.88) hue-rotate(8deg)":ambientMode==="coffee"?"brightness(1.02) saturate(1.1) sepia(0.08)":"none",transition:"filter 0.8s ease"}}>
+      {ambientMode==="nature"&&<NatureOverlay/>}
+      <div style={{filter:ambientMode==="rain"?"brightness(0.94) saturate(0.88) hue-rotate(8deg)":ambientMode==="coffee"?"brightness(1.02) saturate(1.1) sepia(0.08)":ambientMode==="nature"?"brightness(1.03) saturate(1.2) hue-rotate(-15deg)":"none",transition:"filter 0.8s ease"}}>
         <Header view={view} setView={setView} goHome={goHome} isAdmin={isAdmin} searchQuery={searchQuery} setSearchQuery={setSearchQuery} searchOpen={searchOpen} setSearchOpen={setSearchOpen} entries={entries} openEntry={openEntry} ambientMode={ambientMode} toggleAmbient={toggleAmbient} darkMode={darkMode} toggleDark={toggleDark}/>
         {view==="home"&&<HomeScreen entries={filteredEntries} allEntries={entries} pinned={pinned} activeCat={activeCat} setActiveCat={setActiveCat} openEntry={openEntry} toggleLike={toggleLike} likedEntries={likedEntries} setView={setView} setLightboxImg={setLightboxImg} searchQuery={searchQuery} setSearchOpen={setSearchOpen} darkMode={darkMode} addSubscriber={addSubscriber} subscribers={subscribers}/>}
         {view==="read"&&selectedEntry&&<ReadingScreen entry={selectedEntry} comments={comments[selectedEntry.id]||[]} goHome={goHome} toggleLike={toggleLike} likedEntries={likedEntries} addComment={addComment} openEntry={openEntry} entries={entries} deleteEntry={deleteEntry} setLightboxImg={setLightboxImg} darkMode={darkMode}/>}
@@ -539,6 +547,9 @@ function Header({view,setView,goHome,isAdmin,searchQuery,setSearchQuery,searchOp
             <button onClick={()=>toggleAmbient("coffee")} title="Coffee ambience" style={circleBtn(ambientMode==="coffee","#D4A843","#FFF8E6")}>
               <img src="/src/assets/image/coffee.png" alt="Coffee" style={{width:24,height:24,objectFit:"contain"}}/>
             </button>
+            <button onClick={()=>toggleAmbient("nature")} title="Nature ambience" style={circleBtn(ambientMode==="nature","#4CAF50","#F1F8E9")}>
+              <span style={{fontSize:20,lineHeight:1}}>🌿</span>
+            </button>
             <button onClick={toggleDark} title={darkMode?"Switch to light mode":"Switch to dark mode"} style={circleBtn(false,"","")}>
               <span style={{fontSize:18,lineHeight:1}}>{darkMode?"☀️":"🌙"}</span>
             </button>
@@ -555,6 +566,17 @@ function Header({view,setView,goHome,isAdmin,searchQuery,setSearchQuery,searchOp
 }
 
 // ── AMBIENT MODE DATA ─────────────────────────────────────────────────────────
+const NATURE_LEAVES = Array.from({length:18},(_,i)=>({
+  left:((i*5.7+i*1.3)%100).toFixed(1)+"%",
+  width:7+((i*3)%10),
+  height:5+((i*2)%8),
+  duration:(6+((i*1.3)%8)).toFixed(1)+"s",
+  delay:((i*0.41)%5).toFixed(2)+"s",
+  color:["#66BB6A","#81C784","#A5D6A7","#4CAF50","#AED581","#C5E1A5","#DCE775"][i%7],
+  swayDuration:(3+((i*0.6)%3)).toFixed(1)+"s",
+  swayDelay:((i*0.27)%2).toFixed(2)+"s",
+}));
+
 const RAIN_DROPS = Array.from({length:20},(_,i)=>({
   left:((i*5.3+i*0.7)%100).toFixed(1)+"%",
   height:60+((i*7)%61),
@@ -590,6 +612,21 @@ function CoffeeOverlay(){
       ))}
       <div style={{position:"fixed",bottom:24,right:24,background:"rgba(100,55,10,0.72)",color:"#FFF8E6",fontSize:12,padding:"8px 16px",borderRadius:20,backdropFilter:"blur(8px)",border:"1px solid rgba(212,168,67,0.35)",fontFamily:"'DM Sans',sans-serif",letterSpacing:0.2}}>
         ☕ Coffee mode · click icon to stop
+      </div>
+    </div>
+  );
+}
+
+function NatureOverlay(){
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:50,pointerEvents:"none",overflow:"hidden",background:"linear-gradient(to bottom,rgba(20,60,10,0.10),rgba(30,80,20,0.05))"}}>
+      {NATURE_LEAVES.map((l,i)=>(
+        <div key={i} style={{position:"absolute",left:l.left,top:0,animation:`leaffall ${l.duration} ${l.delay} ease-in infinite, leafsway ${l.swayDuration} ${l.swayDelay} ease-in-out infinite`}}>
+          <div style={{width:l.width,height:l.height,borderRadius:"50% 20% 50% 20%",background:l.color,opacity:0.65,transform:`rotate(${i*23}deg)`}}/>
+        </div>
+      ))}
+      <div style={{position:"fixed",bottom:24,right:24,background:"rgba(20,60,10,0.72)",color:"#E8F5E9",fontSize:12,padding:"8px 16px",borderRadius:20,backdropFilter:"blur(8px)",border:"1px solid rgba(165,214,167,0.4)",fontFamily:"'DM Sans',sans-serif",letterSpacing:0.2}}>
+        🌿 Nature mode · click icon to stop
       </div>
     </div>
   );
