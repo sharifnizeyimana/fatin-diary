@@ -20,6 +20,14 @@ const THEME = {
 };
 
 const injectFonts = () => {
+  if (!document.querySelector("meta[name=viewport]")) {
+    const mv=document.createElement("meta");mv.name="viewport";mv.content="width=device-width, initial-scale=1, maximum-scale=1";document.head.appendChild(mv);
+  }
+  if (!document.querySelector("meta[name=apple-mobile-web-app-capable]")) {
+    const m1=document.createElement("meta");m1.name="apple-mobile-web-app-capable";m1.content="yes";document.head.appendChild(m1);
+    const m2=document.createElement("meta");m2.name="apple-mobile-web-app-status-bar-style";m2.content="default";document.head.appendChild(m2);
+    const m3=document.createElement("meta");m3.name="theme-color";m3.content="#C2185B";document.head.appendChild(m3);
+  }
   if (document.getElementById("hana-fonts")) return;
   const l = document.createElement("link");
   l.id = "hana-fonts"; l.rel = "stylesheet";
@@ -38,9 +46,21 @@ const injectFonts = () => {
     @keyframes steamrise{0%{transform:translateY(0);opacity:0.4}100%{transform:translateY(-40px);opacity:0}}
     @keyframes leaffall{0%{transform:translateY(-30px) translateX(0) rotate(0deg);opacity:0}10%{opacity:0.75}85%{opacity:0.5}100%{transform:translateY(110vh) translateX(60px) rotate(420deg);opacity:0}}
     @keyframes leafsway{0%,100%{margin-left:0}25%{margin-left:18px}75%{margin-left:-18px}}
+    .hana-no-scrollbar::-webkit-scrollbar{display:none}
   `;
   document.head.appendChild(s);
 };
+
+// ── RESPONSIVE HOOK ───────────────────────────────────────────────────────────
+function useWindowWidth(){
+  const [width,setWidth]=useState(window.innerWidth);
+  useEffect(()=>{
+    const fn=()=>setWidth(window.innerWidth);
+    window.addEventListener("resize",fn);
+    return()=>window.removeEventListener("resize",fn);
+  },[]);
+  return width;
+}
 
 // ── SEED DATA ─────────────────────────────────────────────────────────────────
 const SEED_ENTRIES = [
@@ -311,6 +331,21 @@ export default function HanaDiary() {
   const [darkMode, setDarkMode] = useState(()=>localStorage.getItem("hana_dark")==="true");
   const toggleDark = ()=>setDarkMode(p=>{const n=!p;localStorage.setItem("hana_dark",String(n));return n;});
   useEffect(()=>{document.body.style.background=darkMode?"#0D0812":"#FFFDF7";},[darkMode]);
+  const isMobile = useWindowWidth() < 768;
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
+  const [headerHidden,setHeaderHidden]=useState(false);
+  const lastScrollY=useRef(0);
+  useEffect(()=>{
+    if(!isMobile){setHeaderHidden(false);return;}
+    const onScroll=()=>{
+      const y=window.scrollY;
+      if(y>lastScrollY.current+10)setHeaderHidden(true);
+      else if(y<lastScrollY.current-5)setHeaderHidden(false);
+      lastScrollY.current=y;
+    };
+    window.addEventListener("scroll",onScroll,{passive:true});
+    return()=>window.removeEventListener("scroll",onScroll);
+  },[isMobile]);
   const rainAudioRef = useRef(null);
   const coffeeAudioRef = useRef(null);
   const natureAudioRef = useRef(null);
@@ -383,8 +418,8 @@ export default function HanaDiary() {
     setSelectedEntry(null);
   };
 
-  const openEntry = (e)=>{setSelectedEntry(e);setView("read");window.scrollTo(0,0);};
-  const goHome = ()=>{setView("home");setSelectedEntry(null);};
+  const openEntry = (e)=>{setSelectedEntry(e);setView("read");window.scrollTo({top:0,behavior:"smooth"});};
+  const goHome = ()=>{setView("home");setSelectedEntry(null);window.scrollTo({top:0,behavior:"smooth"});};
   const filteredEntries = activeCat==="all" ? entries : entries.filter(e=>e.category===activeCat);
   const pinned = entries.find(e=>e.pinned);
 
@@ -403,20 +438,23 @@ export default function HanaDiary() {
   if(view==="adminLogin") return <AdminLoginScreen onLogin={handleAdminLogin}/>;
 
   const t = THEME[darkMode?"dark":"light"];
+  const navTo=(v)=>{setView(v);setMobileMenuOpen(false);window.scrollTo({top:0,behavior:"smooth"});};
   return (
     <div style={{...S.app,background:t.bg,color:t.text,transition:"background 0.4s ease,color 0.4s ease"}}>
       {ambientMode==="rain"&&<RainOverlay/>}
       {ambientMode==="coffee"&&<CoffeeOverlay/>}
       {ambientMode==="nature"&&<NatureOverlay/>}
+      {mobileMenuOpen&&<HamburgerSheet darkMode={darkMode} toggleDark={toggleDark} ambientMode={ambientMode} toggleAmbient={toggleAmbient} isAdmin={isAdmin} goHome={()=>{goHome();setMobileMenuOpen(false);}} navTo={navTo} onClose={()=>setMobileMenuOpen(false)} t={t}/>}
       <div style={{filter:ambientMode==="rain"?"brightness(0.94) saturate(0.88) hue-rotate(8deg)":ambientMode==="coffee"?"brightness(1.02) saturate(1.1) sepia(0.08)":ambientMode==="nature"?"brightness(1.03) saturate(1.2) hue-rotate(-15deg)":"none",transition:"filter 0.8s ease"}}>
-        <Header view={view} setView={setView} goHome={goHome} isAdmin={isAdmin} searchQuery={searchQuery} setSearchQuery={setSearchQuery} searchOpen={searchOpen} setSearchOpen={setSearchOpen} entries={entries} openEntry={openEntry} ambientMode={ambientMode} toggleAmbient={toggleAmbient} darkMode={darkMode} toggleDark={toggleDark}/>
-        {view==="home"&&<HomeScreen entries={filteredEntries} allEntries={entries} pinned={pinned} activeCat={activeCat} setActiveCat={setActiveCat} openEntry={openEntry} toggleLike={toggleLike} likedEntries={likedEntries} setView={setView} setLightboxImg={setLightboxImg} searchQuery={searchQuery} setSearchOpen={setSearchOpen} darkMode={darkMode} addSubscriber={addSubscriber} subscribers={subscribers}/>}
-        {view==="read"&&selectedEntry&&<ReadingScreen entry={selectedEntry} comments={comments[selectedEntry.id]||[]} goHome={goHome} toggleLike={toggleLike} likedEntries={likedEntries} addComment={addComment} openEntry={openEntry} entries={entries} deleteEntry={deleteEntry} setLightboxImg={setLightboxImg} darkMode={darkMode}/>}
-        {view==="write"&&isAdmin&&<WriteScreen goHome={goHome} addEntry={addEntry} darkMode={darkMode}/>}
-        {view==="profile"&&<ProfileScreen entries={entries} openEntry={openEntry} setView={setView} setLightboxImg={setLightboxImg} darkMode={darkMode}/>}
-        {view==="dashboard"&&isAdmin&&<DashboardScreen entries={entries} comments={comments} openEntry={openEntry} setView={setView} deleteEntry={deleteEntry} onLogout={handleLogout} darkMode={darkMode} subscribers={subscribers} setSubscribers={setSubscribers}/>}
+        <Header view={view} setView={setView} goHome={goHome} isAdmin={isAdmin} searchQuery={searchQuery} setSearchQuery={setSearchQuery} searchOpen={searchOpen} setSearchOpen={setSearchOpen} entries={entries} openEntry={openEntry} ambientMode={ambientMode} toggleAmbient={toggleAmbient} darkMode={darkMode} toggleDark={toggleDark} isMobile={isMobile} headerHidden={headerHidden} setMobileMenuOpen={setMobileMenuOpen}/>
+        {view==="home"&&<HomeScreen entries={filteredEntries} allEntries={entries} pinned={pinned} activeCat={activeCat} setActiveCat={setActiveCat} openEntry={openEntry} toggleLike={toggleLike} likedEntries={likedEntries} setView={setView} setLightboxImg={setLightboxImg} searchQuery={searchQuery} setSearchOpen={setSearchOpen} darkMode={darkMode} addSubscriber={addSubscriber} subscribers={subscribers} isMobile={isMobile}/>}
+        {view==="read"&&selectedEntry&&<ReadingScreen entry={selectedEntry} comments={comments[selectedEntry.id]||[]} goHome={goHome} toggleLike={toggleLike} likedEntries={likedEntries} addComment={addComment} openEntry={openEntry} entries={entries} deleteEntry={deleteEntry} setLightboxImg={setLightboxImg} darkMode={darkMode} isMobile={isMobile}/>}
+        {view==="write"&&isAdmin&&<WriteScreen goHome={goHome} addEntry={addEntry} darkMode={darkMode} isMobile={isMobile}/>}
+        {view==="profile"&&<ProfileScreen entries={entries} openEntry={openEntry} setView={setView} setLightboxImg={setLightboxImg} darkMode={darkMode} isMobile={isMobile}/>}
+        {view==="dashboard"&&isAdmin&&<DashboardScreen entries={entries} comments={comments} openEntry={openEntry} setView={setView} deleteEntry={deleteEntry} onLogout={handleLogout} darkMode={darkMode} subscribers={subscribers} setSubscribers={setSubscribers} isMobile={isMobile}/>}
         {lightboxImg&&<Lightbox src={lightboxImg} onClose={()=>setLightboxImg(null)}/>}
       </div>
+      {isMobile&&<BottomNav view={view} goHome={goHome} navTo={navTo} isAdmin={isAdmin} setSearchOpen={setSearchOpen} darkMode={darkMode} t={t}/>}
     </div>
   );
 }
@@ -503,7 +541,7 @@ function AdminLoginScreen({onLogin}){
 }
 
 // ── HEADER ────────────────────────────────────────────────────────────────────
-function Header({view,setView,goHome,isAdmin,searchQuery,setSearchQuery,searchOpen,setSearchOpen,entries,openEntry,ambientMode,toggleAmbient,darkMode,toggleDark}){
+function Header({view,setView,goHome,isAdmin,searchQuery,setSearchQuery,searchOpen,setSearchOpen,entries,openEntry,ambientMode,toggleAmbient,darkMode,toggleDark,isMobile,headerHidden,setMobileMenuOpen}){
   const t=THEME[darkMode?"dark":"light"];
   const searchRef=useRef();
   const publicNav=[{id:"home",label:"Home"},{id:"profile",label:"Profile"}];
@@ -514,54 +552,128 @@ function Header({view,setView,goHome,isAdmin,searchQuery,setSearchQuery,searchOp
   const closeSearch=()=>{setSearchOpen(false);setSearchQuery("");};
   const results=searchQuery.trim()?searchEntries(entries,searchQuery).slice(0,8):[];
   const circleBtn=(active,activeColor,activeBg)=>({width:40,height:40,borderRadius:"50%",border:active?`1.5px solid ${activeColor}`:`1.5px solid ${t.border2}`,background:active?activeBg:t.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,transition:"all 0.3s",boxShadow:active?`0 0 0 3px ${activeColor}`:"none",flexShrink:0});
+  const mobileIconBtn={width:36,height:36,borderRadius:"50%",border:`1px solid ${t.border}`,background:t.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0};
 
   return(
-    <header style={{...S.header,background:t.surface,borderBottom:`1px solid ${t.border}`,position:"relative",transition:"background 0.3s,border-color 0.3s"}}>
-      <div style={S.headerInner}>
-        <div style={{...S.logo,color:t.rose}} onClick={()=>{goHome();closeSearch();}}>Fatin<span style={{...S.logoSpan,color:t.gold}}>·diary</span></div>
+    <header style={{...S.header,background:t.surface,borderBottom:`1px solid ${t.border}`,position:"sticky",top:0,transition:"background 0.3s,border-color 0.3s,transform 0.3s",transform:headerHidden?"translateY(-100%)":"translateY(0)",zIndex:200}}>
+      <div style={{...S.headerInner,height:isMobile?56:64,padding:isMobile?"0 16px":"0 24px"}}>
+        <div style={{...S.logo,color:t.rose,fontSize:isMobile?20:26}} onClick={()=>{goHome();closeSearch();}}>Fatin<span style={{...S.logoSpan,color:t.gold}}>·diary</span></div>
 
-        {searchOpen?(
-          <div style={{flex:1,display:"flex",alignItems:"center",gap:8,margin:"0 12px"}}>
-            <div style={{flex:1,position:"relative"}}>
-              <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:13,opacity:0.35,pointerEvents:"none"}}>🔍</span>
-              <input ref={searchRef} value={searchQuery}
-                onChange={e=>setSearchQuery(e.target.value)}
-                onKeyDown={e=>e.key==="Escape"&&closeSearch()}
-                placeholder="Search entries…"
-                style={{width:"100%",padding:"9px 14px 9px 38px",borderRadius:50,border:`1.5px solid ${t.border2}`,background:t.bg,color:t.text,fontFamily:"'DM Sans',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box",transition:"border-color 0.2s"}}
-                onFocus={e=>e.target.style.borderColor=t.rose}
-                onBlur={e=>e.target.style.borderColor=t.border2}
-              />
+        {isMobile?(
+          searchOpen?(
+            <div style={{flex:1,display:"flex",alignItems:"center",gap:8,margin:"0 10px"}}>
+              <div style={{flex:1,position:"relative"}}>
+                <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:13,opacity:0.35,pointerEvents:"none"}}>🔍</span>
+                <input ref={searchRef} value={searchQuery}
+                  onChange={e=>setSearchQuery(e.target.value)}
+                  onKeyDown={e=>e.key==="Escape"&&closeSearch()}
+                  placeholder="Search entries…"
+                  style={{width:"100%",padding:"9px 12px 9px 34px",borderRadius:50,border:`1.5px solid ${t.border2}`,background:t.bg,color:t.text,fontFamily:"'DM Sans',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box"}}
+                  onFocus={e=>e.target.style.borderColor=t.rose}
+                  onBlur={e=>e.target.style.borderColor=t.border2}
+                />
+              </div>
+              <button onClick={closeSearch} style={{background:"none",border:"none",color:t.text3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"4px 6px",flexShrink:0}}>✕</button>
             </div>
-            <button onClick={closeSearch} style={{background:"none",border:"none",color:t.text3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"4px 6px",flexShrink:0}}>✕</button>
-          </div>
+          ):(
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <button onClick={()=>setSearchOpen(true)} style={mobileIconBtn} title="Search"><span style={{fontSize:16}}>🔍</span></button>
+              <button onClick={toggleDark} style={mobileIconBtn} title={darkMode?"Light mode":"Dark mode"}><span style={{fontSize:16}}>{darkMode?"☀️":"🌙"}</span></button>
+              <button onClick={()=>setMobileMenuOpen(true)} style={mobileIconBtn} title="Menu"><span style={{fontSize:18,lineHeight:1}}>☰</span></button>
+            </div>
+          )
         ):(
-          <nav style={S.navLinks}>
-            {(isAdmin?adminNav:publicNav).map(n=>{const a=view===n.id;return(
-              <button key={n.id} style={{padding:"8px 16px",borderRadius:24,border:a?`1.5px solid ${t.rose}`:"1.5px solid transparent",background:a?t.roseBg:"transparent",color:a?t.rose:t.text3,cursor:"pointer",fontSize:14,fontWeight:500,fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s"}} onClick={()=>n.id==="home"?goHome():setView(n.id)}>{n.label}</button>
-            );})}
-            <button onClick={()=>setSearchOpen(true)} title="Search" style={{padding:"8px 11px",borderRadius:24,border:"1.5px solid transparent",background:"transparent",color:t.text3,cursor:"pointer",fontSize:15,lineHeight:1,transition:"all 0.2s"}}>🔍</button>
-            <button onClick={()=>toggleAmbient("rain")} title="Rain ambience" style={circleBtn(ambientMode==="rain","#4FC3F7","#EFF8FF")}>
-              <span style={{fontSize:20,lineHeight:1}}>🌧️</span>
-            </button>
-            <button onClick={()=>toggleAmbient("coffee")} title="Coffee ambience" style={circleBtn(ambientMode==="coffee","#D4A843","#FFF8E6")}>
-              <span style={{fontSize:20,lineHeight:1}}>☕</span>
-            </button>
-            <button onClick={()=>toggleAmbient("nature")} title="Nature ambience" style={circleBtn(ambientMode==="nature","#4CAF50","#F1F8E9")}>
-              <span style={{fontSize:20,lineHeight:1}}>🌿</span>
-            </button>
-            <button onClick={toggleDark} title={darkMode?"Switch to light mode":"Switch to dark mode"} style={circleBtn(false,"","")}>
-              <span style={{fontSize:18,lineHeight:1}}>{darkMode?"☀️":"🌙"}</span>
-            </button>
-            {isAdmin&&<button style={S.writeBtn} onClick={()=>setView("write")}>✍ Write entry</button>}
-          </nav>
+          searchOpen?(
+            <div style={{flex:1,display:"flex",alignItems:"center",gap:8,margin:"0 12px"}}>
+              <div style={{flex:1,position:"relative"}}>
+                <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:13,opacity:0.35,pointerEvents:"none"}}>🔍</span>
+                <input ref={searchRef} value={searchQuery}
+                  onChange={e=>setSearchQuery(e.target.value)}
+                  onKeyDown={e=>e.key==="Escape"&&closeSearch()}
+                  placeholder="Search entries…"
+                  style={{width:"100%",padding:"9px 14px 9px 38px",borderRadius:50,border:`1.5px solid ${t.border2}`,background:t.bg,color:t.text,fontFamily:"'DM Sans',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box",transition:"border-color 0.2s"}}
+                  onFocus={e=>e.target.style.borderColor=t.rose}
+                  onBlur={e=>e.target.style.borderColor=t.border2}
+                />
+              </div>
+              <button onClick={closeSearch} style={{background:"none",border:"none",color:t.text3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"4px 6px",flexShrink:0}}>✕</button>
+            </div>
+          ):(
+            <nav style={S.navLinks}>
+              {(isAdmin?adminNav:publicNav).map(n=>{const a=view===n.id;return(
+                <button key={n.id} style={{padding:"8px 16px",borderRadius:24,border:a?`1.5px solid ${t.rose}`:"1.5px solid transparent",background:a?t.roseBg:"transparent",color:a?t.rose:t.text3,cursor:"pointer",fontSize:14,fontWeight:500,fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s"}} onClick={()=>n.id==="home"?goHome():setView(n.id)}>{n.label}</button>
+              );})}
+              <button onClick={()=>setSearchOpen(true)} title="Search" style={{padding:"8px 11px",borderRadius:24,border:"1.5px solid transparent",background:"transparent",color:t.text3,cursor:"pointer",fontSize:15,lineHeight:1,transition:"all 0.2s"}}>🔍</button>
+              <button onClick={()=>toggleAmbient("rain")} title="Rain ambience" style={circleBtn(ambientMode==="rain","#4FC3F7","#EFF8FF")}><span style={{fontSize:20,lineHeight:1}}>🌧️</span></button>
+              <button onClick={()=>toggleAmbient("coffee")} title="Coffee ambience" style={circleBtn(ambientMode==="coffee","#D4A843","#FFF8E6")}><span style={{fontSize:20,lineHeight:1}}>☕</span></button>
+              <button onClick={()=>toggleAmbient("nature")} title="Nature ambience" style={circleBtn(ambientMode==="nature","#4CAF50","#F1F8E9")}><span style={{fontSize:20,lineHeight:1}}>🌿</span></button>
+              <button onClick={toggleDark} title={darkMode?"Switch to light mode":"Switch to dark mode"} style={circleBtn(false,"","")}><span style={{fontSize:18,lineHeight:1}}>{darkMode?"☀️":"🌙"}</span></button>
+              {isAdmin&&<button style={S.writeBtn} onClick={()=>setView("write")}>✍ Write entry</button>}
+            </nav>
+          )
         )}
       </div>
 
       {searchQuery.trim()&&(
-        <SearchResultsPanel results={results} query={searchQuery} openEntry={e=>{openEntry(e);closeSearch();}} darkMode={darkMode}/>
+        <SearchResultsPanel results={results} query={searchQuery} openEntry={e=>{openEntry(e);closeSearch();}} darkMode={darkMode} isMobile={isMobile}/>
       )}
     </header>
+  );
+}
+
+// ── BOTTOM NAV ────────────────────────────────────────────────────────────────
+function BottomNav({view,goHome,navTo,isAdmin,setSearchOpen,darkMode,t}){
+  const items=[
+    {icon:"🏠",label:"Home",action:()=>goHome(),id:"home"},
+    {icon:"🔍",label:"Search",action:()=>setSearchOpen(true),id:"search"},
+    ...(isAdmin?[{icon:"✍",label:"Write",action:()=>navTo("write"),id:"write"}]:[]),
+    {icon:"👤",label:"Profile",action:()=>navTo("profile"),id:"profile"},
+    {icon:isAdmin?"⚙️":"🔖",label:isAdmin?"Dashboard":"Saved",action:()=>isAdmin?navTo("dashboard"):null,id:"dashboard"},
+  ];
+  return(
+    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:500,background:t.surface,borderTop:`1px solid ${t.border}`,paddingTop:8,paddingBottom:"calc(8px + env(safe-area-inset-bottom))",display:"flex",justifyContent:"space-around",alignItems:"stretch"}}>
+      {items.map(item=>{
+        const active=view===item.id;
+        return(
+          <button key={item.id} onClick={item.action} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"none",border:"none",cursor:"pointer",padding:"4px 0",minHeight:44,position:"relative"}}>
+            {active&&<div style={{position:"absolute",top:-8,width:4,height:4,borderRadius:"50%",background:t.rose}}/>}
+            <span style={{fontSize:20,lineHeight:1,color:active?t.rose:t.text3}}>{item.icon}</span>
+            <span style={{fontSize:10,color:active?t.rose:t.text3,fontFamily:"'DM Sans',sans-serif",fontWeight:active?500:400}}>{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── HAMBURGER SHEET ───────────────────────────────────────────────────────────
+function HamburgerSheet({darkMode,toggleDark,ambientMode,toggleAmbient,isAdmin,goHome,navTo,onClose,t}){
+  const items=[
+    {icon:"🏠",label:"Home",action:goHome,rose:false},
+    {icon:"👤",label:"Profile",action:()=>navTo("profile"),rose:false},
+    ...(isAdmin?[{icon:"🌺",label:"Write new entry",action:()=>navTo("write"),rose:true}]:[]),
+    ...(isAdmin?[{icon:"⚙️",label:"Dashboard",action:()=>navTo("dashboard"),rose:false}]:[]),
+    {icon:darkMode?"☀️":"🌙",label:darkMode?"Light mode":"Dark mode",action:toggleDark,rose:false},
+    {icon:"🌧️",label:"Rain mode",action:()=>{toggleAmbient("rain");onClose();},rose:ambientMode==="rain"},
+    {icon:"☕",label:"Coffee mode",action:()=>{toggleAmbient("coffee");onClose();},rose:ambientMode==="coffee"},
+    {icon:"🌿",label:"Nature mode",action:()=>{toggleAmbient("nature");onClose();},rose:ambientMode==="nature"},
+  ];
+  return(
+    <>
+      <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.5)"}}/>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:601,background:t.surface,borderRadius:"24px 24px 0 0",padding:"20px 24px 40px",animation:"hanaFadeIn 0.3s ease-out"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",marginBottom:20}}>
+          <div style={{width:40,height:4,borderRadius:2,background:t.border2}}/>
+        </div>
+        <button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"none",border:"none",color:t.text3,cursor:"pointer",fontSize:20,lineHeight:1,padding:4}}>✕</button>
+        {items.map((item,i)=>(
+          <button key={i} onClick={()=>{item.action();if(!["Dark mode","Light mode"].includes(item.label))onClose();}} style={{width:"100%",display:"flex",alignItems:"center",gap:16,padding:"14px 0",borderBottom:`1px solid ${t.border}`,background:"none",border:"none",borderBottom:`1px solid ${t.border}`,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
+            <span style={{fontSize:22,width:28,textAlign:"center"}}>{item.icon}</span>
+            <span style={{fontSize:16,color:item.rose?t.rose:t.text,fontWeight:item.rose?500:400}}>{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -633,11 +745,11 @@ function NatureOverlay(){
 }
 
 // ── SEARCH RESULTS PANEL ──────────────────────────────────────────────────────
-function SearchResultsPanel({results,query,openEntry,darkMode}){
+function SearchResultsPanel({results,query,openEntry,darkMode,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   return(
-    <div style={{position:"absolute",top:"100%",left:0,right:0,background:t.surface,borderBottom:`2px solid ${t.border}`,boxShadow:"0 8px 32px rgba(0,0,0,0.15)",zIndex:300,maxHeight:480,overflowY:"auto",transition:"background 0.3s"}}>
-      <div style={{maxWidth:1100,margin:"0 auto",padding:"12px 24px 16px"}}>
+    <div style={{position:"absolute",top:"100%",left:0,right:0,background:t.surface,borderBottom:`2px solid ${t.border}`,boxShadow:"0 8px 32px rgba(0,0,0,0.15)",zIndex:300,maxHeight:isMobile?"60vh":480,overflowY:"auto",transition:"background 0.3s"}}>
+      <div style={{maxWidth:1100,margin:"0 auto",padding:isMobile?"12px 16px 16px":"12px 24px 16px"}}>
         <p style={{fontSize:12,color:t.text3,marginBottom:results.length?10:0}}>
           {results.length>0?`${results.length} result${results.length!==1?"s":""} for '${query}'`:""}
         </p>
@@ -648,7 +760,7 @@ function SearchResultsPanel({results,query,openEntry,darkMode}){
           </div>
         ):results.map(entry=>(
           <div key={entry.id} onClick={()=>openEntry(entry)}
-            style={{display:"flex",alignItems:"center",gap:14,padding:"10px 8px",borderBottom:`1px solid ${t.border}`,cursor:"pointer",borderRadius:8,transition:"background 0.15s"}}
+            style={{display:"flex",alignItems:"center",gap:14,padding:isMobile?"14px 8px":"10px 8px",borderBottom:`1px solid ${t.border}`,cursor:"pointer",borderRadius:8,transition:"background 0.15s"}}
             onMouseEnter={e=>e.currentTarget.style.background=t.surface2}
             onMouseLeave={e=>e.currentTarget.style.background="transparent"}
           >
@@ -753,46 +865,47 @@ function NewsletterSidebarCard({addSubscriber,darkMode,subscribers}){
 }
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,toggleLike,likedEntries,setView,setLightboxImg,searchQuery,setSearchOpen,darkMode,addSubscriber,subscribers}){
+function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,toggleLike,likedEntries,setView,setLightboxImg,searchQuery,setSearchOpen,darkMode,addSubscriber,subscribers,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   return(
     <div>
-      <div style={{...S.hero,background:t.heroGrad}}>
+      <div style={{...S.hero,background:t.heroGrad,padding:isMobile?"40px 20px 50px":"64px 24px 72px"}}>
         <div style={{position:"absolute",inset:0,backgroundImage:"radial-gradient(circle at 80% 20%,rgba(255,255,255,0.06) 0%,transparent 50%),radial-gradient(circle at 20% 80%,rgba(0,0,0,0.15) 0%,transparent 50%)"}}/>
         <div style={{position:"absolute",bottom:0,left:0,right:0,height:50,background:"repeating-linear-gradient(90deg,transparent 0,transparent 22px,rgba(255,255,255,0.06) 22px,rgba(255,255,255,0.06) 24px)"}}/>
         <div style={S.heroInner}>
           <p style={S.heroLabel}>✦ Selamat datang — Welcome to</p>
-          <h1 style={S.heroTitle}>Her stories, her <em style={S.heroTitleEm}>wisdom,</em><br/>her beautiful life.</h1>
-          <p style={S.heroSub}>A Malaysian woman's space to journal her journey, share tips and tricks, spark conversations, and leave a little light for others.</p>
-
+          <h1 style={{...S.heroTitle,fontSize:isMobile?"28px":"clamp(32px,5vw,56px)"}}>Her stories, her <em style={S.heroTitleEm}>wisdom,</em><br/>her beautiful life.</h1>
+          {!isMobile&&<p style={S.heroSub}>A Malaysian woman's space to journal her journey, share tips and tricks, spark conversations, and leave a little light for others.</p>}
         </div>
       </div>
 
-      <div style={S.main}>
-        <div style={S.grid}>
+      <div style={{...S.main,padding:isMobile?"16px":S.main.padding,paddingBottom:isMobile?80:40}}>
+        <div style={{...S.grid,gridTemplateColumns:isMobile?"1fr":S.grid.gridTemplateColumns,gap:isMobile?0:40}}>
           <div>
             {/* Pinned */}
             {pinned&&(
-              <div style={S.featCard} onClick={()=>openEntry(pinned)}
-                onMouseEnter={e=>e.currentTarget.style.transform="translateY(-3px)"}
-                onMouseLeave={e=>e.currentTarget.style.transform="none"}>
+              <div style={{...S.featCard,borderRadius:isMobile?16:24}} onClick={()=>openEntry(pinned)}
+                onMouseEnter={e=>!isMobile&&(e.currentTarget.style.transform="translateY(-3px)")}
+                onMouseLeave={e=>!isMobile&&(e.currentTarget.style.transform="none")}
+                onTouchStart={e=>e.currentTarget.style.transform="scale(0.98)"}
+                onTouchEnd={e=>e.currentTarget.style.transform="scale(1)"}>
                 {pinned.image
                   ? <div style={{position:"relative"}}>
-                      <img src={pinned.image} alt="" style={{width:"100%",height:220,objectFit:"cover",display:"block"}}/>
+                      <img src={pinned.image} alt="" style={{width:"100%",height:isMobile?160:220,objectFit:"cover",display:"block"}}/>
                       <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,rgba(123,13,62,0.3) 0%,rgba(123,13,62,0.85) 100%)"}}/>
-                      <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"24px 28px"}}>
+                      <div style={{position:"absolute",bottom:0,left:0,right:0,padding:isMobile?"16px 20px":"24px 28px"}}>
                         <p style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.65)",marginBottom:8}}>✦ Pinned story</p>
-                        <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:"#fff",lineHeight:1.3,marginBottom:8}}>{pinned.title}</h2>
+                        <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?18:22,color:"#fff",lineHeight:1.3,marginBottom:8}}>{pinned.title}</h2>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                           <span style={{fontSize:13,color:"rgba(255,255,255,0.75)"}}>Nurul · {pinned.readTime} min read</span>
                           <div style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"5px 16px",fontSize:13,color:"#fff"}}>Read →</div>
                         </div>
                       </div>
                     </div>
-                  : <div style={{padding:28}}>
+                  : <div style={{padding:isMobile?20:28}}>
                       <div style={{position:"absolute",top:-40,right:-40,width:160,height:160,borderRadius:"50%",background:"rgba(255,255,255,0.06)"}}/>
                       <p style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.6)",marginBottom:10}}>✦ Pinned story</p>
-                      <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:24,color:"#fff",lineHeight:1.3,marginBottom:10}}>{pinned.title}</h2>
+                      <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?18:24,color:"#fff",lineHeight:1.3,marginBottom:10}}>{pinned.title}</h2>
                       <p style={{fontSize:14,color:"rgba(255,255,255,0.75)",lineHeight:1.65,marginBottom:18}}>{pinned.excerpt}</p>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                         <span style={{fontSize:13,color:"rgba(255,255,255,0.7)"}}>Nurul · {pinned.readTime} min read</span>
@@ -816,19 +929,19 @@ function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,
                       <p style={{fontSize:16}}>No entries found for '{searchQuery}'</p>
                     </div>
                   ):sr.map(entry=>(
-                    <EntryCard key={entry.id} entry={entry} toggleLike={toggleLike} liked={likedEntries[entry.id]} onClick={()=>openEntry(entry)} onImgClick={entry.image?(e)=>{e.stopPropagation();setLightboxImg(entry.image);}:null} darkMode={darkMode}/>
+                    <EntryCard key={entry.id} entry={entry} toggleLike={toggleLike} liked={likedEntries[entry.id]} onClick={()=>openEntry(entry)} onImgClick={entry.image?(e)=>{e.stopPropagation();setLightboxImg(entry.image);}:null} darkMode={darkMode} isMobile={isMobile}/>
                   ))}
                 </div>
               );
             })():(
               <div>
-                <div style={S.catRow}>
+                <div style={{...S.catRow,flexWrap:isMobile?"nowrap":"wrap",overflowX:isMobile?"auto":"visible",paddingBottom:isMobile?8:0,scrollbarWidth:"none"}}>
                   {CATEGORIES.map(c=>(
-                    <button key={c.id} style={{padding:"8px 18px",borderRadius:24,border:activeCat===c.id&&CAT_META[c.id]?`1.5px solid ${CAT_META[c.id].border}`:`1.5px solid ${t.border2}`,background:activeCat===c.id&&CAT_META[c.id]?CAT_META[c.id].bg:t.surface,color:activeCat===c.id&&CAT_META[c.id]?CAT_META[c.id].color:t.text3,cursor:"pointer",fontSize:13,fontWeight:500,fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s",display:"flex",alignItems:"center",gap:6}} onClick={()=>setActiveCat(c.id)}>{c.emoji} {c.label}</button>
+                    <button key={c.id} style={{padding:"8px 18px",borderRadius:24,border:activeCat===c.id&&CAT_META[c.id]?`1.5px solid ${CAT_META[c.id].border}`:`1.5px solid ${t.border2}`,background:activeCat===c.id&&CAT_META[c.id]?CAT_META[c.id].bg:t.surface,color:activeCat===c.id&&CAT_META[c.id]?CAT_META[c.id].color:t.text3,cursor:"pointer",fontSize:13,fontWeight:500,fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,flexShrink:0}} onClick={()=>setActiveCat(c.id)}>{c.emoji} {c.label}</button>
                   ))}
                 </div>
                 {entries.map(entry=>(
-                  <EntryCard key={entry.id} entry={entry} toggleLike={toggleLike} liked={likedEntries[entry.id]} onClick={()=>openEntry(entry)} onImgClick={entry.image?(e)=>{e.stopPropagation();setLightboxImg(entry.image);}:null} darkMode={darkMode}/>
+                  <EntryCard key={entry.id} entry={entry} toggleLike={toggleLike} liked={likedEntries[entry.id]} onClick={()=>openEntry(entry)} onImgClick={entry.image?(e)=>{e.stopPropagation();setLightboxImg(entry.image);}:null} darkMode={darkMode} isMobile={isMobile}/>
                 ))}
                 {entries.length===0&&(
                   <div style={{textAlign:"center",padding:"60px 0",color:t.text3}}>
@@ -841,14 +954,16 @@ function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,
             )}
           </div>
 
-          {/* Sidebar */}
-          <aside style={S.sidebar}>
-            <SidebarProfile allEntries={allEntries} darkMode={darkMode}/>
-            <NewsletterSidebarCard addSubscriber={addSubscriber} darkMode={darkMode} subscribers={subscribers}/>
-            <PhotoGallerySidebar allEntries={allEntries} setLightboxImg={setLightboxImg} darkMode={darkMode}/>
-            <SidebarTags allEntries={allEntries} darkMode={darkMode}/>
-            <SidebarRecent allEntries={allEntries} openEntry={openEntry} darkMode={darkMode}/>
-          </aside>
+          {/* Sidebar — hidden on mobile */}
+          {!isMobile&&(
+            <aside style={S.sidebar}>
+              <SidebarProfile allEntries={allEntries} darkMode={darkMode}/>
+              <NewsletterSidebarCard addSubscriber={addSubscriber} darkMode={darkMode} subscribers={subscribers}/>
+              <PhotoGallerySidebar allEntries={allEntries} setLightboxImg={setLightboxImg} darkMode={darkMode}/>
+              <SidebarTags allEntries={allEntries} darkMode={darkMode}/>
+              <SidebarRecent allEntries={allEntries} openEntry={openEntry} darkMode={darkMode}/>
+            </aside>
+          )}
         </div>
       </div>
     </div>
@@ -856,15 +971,17 @@ function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,
 }
 
 // ── ENTRY CARD ────────────────────────────────────────────────────────────────
-function EntryCard({entry,toggleLike,liked,onClick,onImgClick,darkMode}){
+function EntryCard({entry,toggleLike,liked,onClick,onImgClick,darkMode,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   const meta = CAT_META[entry.category]||{};
   return(
-    <div style={{...S.entryCard,background:t.surface,border:`1px solid ${t.border}`,transition:"all 0.25s"}} onClick={onClick}
-      onMouseEnter={e=>{e.currentTarget.style.boxShadow=`0 8px 28px rgba(194,24,91,${darkMode?0.2:0.1})`;e.currentTarget.style.transform="translateY(-2px)";}}
-      onMouseLeave={e=>{e.currentTarget.style.boxShadow="none";e.currentTarget.style.transform="none";}}>
+    <div style={{...S.entryCard,background:t.surface,border:`1px solid ${t.border}`,transition:"all 0.25s",borderRadius:isMobile?16:20,marginBottom:isMobile?14:20}} onClick={onClick}
+      onMouseEnter={e=>{if(!isMobile){e.currentTarget.style.boxShadow=`0 8px 28px rgba(194,24,91,${darkMode?0.2:0.1})`;e.currentTarget.style.transform="translateY(-2px)";}}}
+      onMouseLeave={e=>{if(!isMobile){e.currentTarget.style.boxShadow="none";e.currentTarget.style.transform="none";}}}
+      onTouchStart={e=>e.currentTarget.style.transform="scale(0.98)"}
+      onTouchEnd={e=>e.currentTarget.style.transform="scale(1)"}>
       {entry.image&&(
-        <div style={{position:"relative",height:200,overflow:"hidden"}} onClick={onImgClick||undefined}>
+        <div style={{position:"relative",height:isMobile?160:200,overflow:"hidden"}} onClick={onImgClick||undefined}>
           <img src={entry.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",transition:"transform 0.4s"}}
             onMouseEnter={e=>e.target.style.transform="scale(1.04)"}
             onMouseLeave={e=>e.target.style.transform="scale(1)"}/>
@@ -1032,7 +1149,7 @@ function ShareBar({entry,darkMode}){
 }
 
 // ── READING SCREEN ────────────────────────────────────────────────────────────
-function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment,openEntry,entries,deleteEntry,setLightboxImg,darkMode}){
+function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment,openEntry,entries,deleteEntry,setLightboxImg,darkMode,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   const [newComment,setNewComment]=useState("");
   const [commenterName,setCommenterName]=useState(()=>localStorage.getItem("hana_commenter_name")||"");
@@ -1089,7 +1206,7 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
       )}
 
       {/* If there's an image, back button in body */}
-      <div style={S.readingWrap}>
+      <div style={{...S.readingWrap,padding:isMobile?"0 16px 100px":"0 24px 60px"}}>
         {entry.image&&(
           <button onClick={goHome} style={{background:"none",border:"none",color:"#9E8070",cursor:"pointer",fontSize:14,margin:"28px 0 4px",fontFamily:"'DM Sans',sans-serif",display:"block"}}>← Back to home</button>
         )}
@@ -1103,7 +1220,7 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
 
         <ShareBar entry={entry} darkMode={darkMode}/>
 
-        <div style={{fontSize:17,color:t.text2,lineHeight:1.9,fontFamily:"'DM Sans',sans-serif"}}>
+        <div style={{fontSize:isMobile?16:17,color:t.text2,lineHeight:1.9,fontFamily:"'DM Sans',sans-serif"}}>
           {entry.body.split("\n\n").map((para,i)=>(
             <p key={i} style={{marginBottom:26}} dangerouslySetInnerHTML={{__html:para.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>")}}/>
           ))}
@@ -1140,7 +1257,7 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
           ))}
           <div style={{background:t.surface,border:`1px solid ${t.border}`,borderRadius:16,padding:20}}>
             <p style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:t.text,marginBottom:14}}>Leave a comment</p>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
               <div>
                 <input value={commenterName} onChange={e=>handleNameChange(e.target.value)} placeholder="Your name *" style={{width:"100%",padding:"14px 16px",borderRadius:14,border:`1.5px solid ${t.border2}`,background:t.bg,color:t.text,fontFamily:"'DM Sans',sans-serif",fontSize:15,outline:"none",boxSizing:"border-box"}}/>
               </div>
@@ -1160,7 +1277,7 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
         {related.length>0&&(
           <div>
             <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:t.text,marginBottom:16}}>More from Nurul</h3>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:16}}>
               {related.map(e=>(
                 <div key={e.id} style={{background:t.surface,border:`1px solid ${t.border}`,borderRadius:16,overflow:"hidden",cursor:"pointer"}} onClick={()=>openEntry(e)}>
                   {e.image&&<img src={e.image} alt="" style={{width:"100%",height:100,objectFit:"cover",display:"block"}}/>}
@@ -1180,7 +1297,7 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
 }
 
 // ── WRITE SCREEN ──────────────────────────────────────────────────────────────
-function WriteScreen({goHome,addEntry,darkMode}){
+function WriteScreen({goHome,addEntry,darkMode,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   const [form,setForm]=useState({title:"",excerpt:"",body:"",category:"journey",mood:"😊 Happy",tags:"",image:null});
   const [errors,setErrors]=useState({});
@@ -1207,9 +1324,9 @@ function WriteScreen({goHome,addEntry,darkMode}){
   };
 
   return(
-    <div style={{...S.editorWrap,background:t.bg,minHeight:"100vh"}}>
+    <div style={{...S.editorWrap,background:t.bg,minHeight:"100vh",padding:isMobile?"20px 16px 100px":"40px 24px"}}>
       <button onClick={goHome} style={{background:"none",border:"none",color:t.text3,cursor:"pointer",fontSize:14,marginBottom:28,fontFamily:"'DM Sans',sans-serif"}}>← Back</button>
-      <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:t.text,marginBottom:8}}>Write a new entry</h1>
+      <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?22:28,color:t.text,marginBottom:8}}>Write a new entry</h1>
       <p style={{fontSize:14,color:t.text3,marginBottom:36}}>Share your story with the world.</p>
 
       <div style={S.fieldGroup}>
@@ -1271,16 +1388,16 @@ function WriteScreen({goHome,addEntry,darkMode}){
         </div>
       )}
 
-      <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-        <button style={S.primaryBtn} onClick={handleSubmit}>Publish entry 🌺</button>
-        <button style={{padding:"13px 28px",borderRadius:50,background:"transparent",border:`1.5px solid ${t.border2}`,color:t.text3,fontWeight:500,fontSize:15,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={goHome}>Discard</button>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",flexDirection:isMobile?"column":"row"}}>
+        <button style={{...S.primaryBtn,width:isMobile?"100%":"auto"}} onClick={handleSubmit}>Publish entry 🌺</button>
+        <button style={{padding:"13px 28px",borderRadius:50,background:"transparent",border:`1.5px solid ${t.border2}`,color:t.text3,fontWeight:500,fontSize:15,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",width:isMobile?"100%":"auto"}} onClick={goHome}>Discard</button>
       </div>
     </div>
   );
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode}){
+function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   const totalLikes=entries.reduce((s,e)=>s+(e.likes||0),0);
   const totalComments=entries.reduce((s,e)=>s+(e.comments||0),0);
@@ -1289,27 +1406,27 @@ function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode}){
 
   return(
     <div>
-      <div style={S.profileHero}>
+      <div style={{...S.profileHero,padding:isMobile?"40px 16px 60px":"48px 24px 80px"}}>
         <div style={{position:"absolute",inset:0,backgroundImage:"radial-gradient(circle at 60% 40%,rgba(255,255,255,0.06) 0%,transparent 60%)"}}/>
         <div style={{position:"relative",zIndex:1}}>
-          <div style={S.avatar}>N</div>
-          <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:"#fff",marginBottom:6}}>Nurul</h1>
-          <p style={{fontSize:15,color:"rgba(255,255,255,0.75)",marginBottom:20}}>Malaysian · Writer · Dreamer · Life documenter</p>
-          <p style={{fontSize:14,color:"rgba(255,255,255,0.65)",maxWidth:480,margin:"0 auto 24px",lineHeight:1.7}}>Sharing my Malaysian journey — the food, the stories, the hard days, and the beautiful ordinary moments.</p>
-          <div style={{display:"inline-flex",gap:24,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:16,padding:"14px 28px"}}>
+          <div style={{...S.avatar,width:isMobile?80:100,height:isMobile?80:100,fontSize:isMobile?28:36}}>N</div>
+          <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?24:32,color:"#fff",marginBottom:6}}>Nurul</h1>
+          <p style={{fontSize:isMobile?13:15,color:"rgba(255,255,255,0.75)",marginBottom:20}}>Malaysian · Writer · Dreamer · Life documenter</p>
+          {!isMobile&&<p style={{fontSize:14,color:"rgba(255,255,255,0.65)",maxWidth:480,margin:"0 auto 24px",lineHeight:1.7}}>Sharing my Malaysian journey — the food, the stories, the hard days, and the beautiful ordinary moments.</p>}
+          <div style={{display:"inline-flex",gap:isMobile?16:24,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:16,padding:isMobile?"12px 20px":"14px 28px"}}>
             {[{n:entries.length,l:"entries"},{n:totalLikes,l:"total likes"},{n:totalComments,l:"comments"},{n:photos.length,l:"photos"}].map((s,i)=>(
               <div key={i} style={{textAlign:"center"}}>
-                <div style={{fontSize:24,fontWeight:700,color:"#fff"}}>{s.n}</div>
-                <div style={{fontSize:12,color:"rgba(255,255,255,0.65)"}}>{s.l}</div>
+                <div style={{fontSize:isMobile?18:24,fontWeight:700,color:"#fff"}}>{s.n}</div>
+                <div style={{fontSize:isMobile?10:12,color:"rgba(255,255,255,0.65)"}}>{s.l}</div>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div style={{maxWidth:960,margin:"0 auto",padding:"40px 24px",background:t.bg,minHeight:"60vh"}}>
+      <div style={{maxWidth:960,margin:"0 auto",padding:isMobile?"20px 16px 100px":"40px 24px",background:t.bg,minHeight:"60vh"}}>
         <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:t.text,marginBottom:20}}>Content breakdown</h2>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:40}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:40}}>
           {byCategory.map(c=>{const m=CAT_META[c.id]||{};return(
             <div key={c.id} style={{background:m.bg||"#FDF8F5",border:`1px solid ${m.border||"#E8D5CE"}`,borderRadius:16,padding:"18px 20px"}}>
               <div style={{fontSize:28,marginBottom:8}}>{c.emoji}</div>
@@ -1323,7 +1440,7 @@ function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode}){
         {photos.length>0&&(
           <>
             <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:t.text,marginBottom:20}}>📷 Photo wall</h2>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:40}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:40}}>
               {photos.map(e=>(
                 <div key={e.id} style={{borderRadius:16,overflow:"hidden",position:"relative",cursor:"zoom-in",aspectRatio:"4/3"}} onClick={()=>setLightboxImg(e.image)}>
                   <img src={e.image} alt={e.title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",transition:"transform 0.4s"}}
@@ -1339,7 +1456,7 @@ function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode}){
         )}
 
         <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:t.text,marginBottom:20}}>All entries</h2>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:16}}>
           {entries.map(e=>(
             <div key={e.id} style={{background:t.surface,border:`1px solid ${t.border}`,borderRadius:16,overflow:"hidden",cursor:"pointer",transition:"all 0.2s"}}
               onClick={()=>openEntry(e)}
@@ -1366,7 +1483,7 @@ function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode}){
 }
 
 // ── DASHBOARD SCREEN ──────────────────────────────────────────────────────────
-function DashboardScreen({entries,comments,openEntry,setView,deleteEntry,onLogout,darkMode,subscribers,setSubscribers}){
+function DashboardScreen({entries,comments,openEntry,setView,deleteEntry,onLogout,darkMode,subscribers,setSubscribers,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   const totalLikes=entries.reduce((s,e)=>s+(e.likes||0),0);
   const totalComments=entries.reduce((s,e)=>s+(e.comments||0),0);
@@ -1387,16 +1504,16 @@ function DashboardScreen({entries,comments,openEntry,setView,deleteEntry,onLogou
   ).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
 
   return(
-    <div style={{maxWidth:1100,margin:"0 auto",padding:"40px 24px",background:t.bg,minHeight:"100vh"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:32}}>
+    <div style={{maxWidth:1100,margin:"0 auto",padding:isMobile?"16px 16px 100px":"40px 24px",background:t.bg,minHeight:"100vh"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:32,flexWrap:"wrap",gap:12}}>
         <div>
-          <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:32,color:t.text,marginBottom:4}}>Your Dashboard</h1>
-          <p style={{fontSize:14,color:t.text3}}>Manage your entries, track your photos, see what's resonating.</p>
+          <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?24:32,color:t.text,marginBottom:4}}>Your Dashboard</h1>
+          <p style={{fontSize:14,color:t.text3}}>Manage your entries, see what's resonating.</p>
         </div>
-        <button style={S.writeBtn} onClick={()=>setView("write")}>✍ Write new entry</button>
+        {!isMobile&&<button style={S.writeBtn} onClick={()=>setView("write")}>✍ Write new entry</button>}
       </div>
 
-      <div style={S.dashGrid}>
+      <div style={{...S.dashGrid,gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fit,minmax(180px,1fr))"}}>
         {[
           {n:entries.length,l:"Total entries",accent:"#C2185B"},
           {n:totalPhotos,l:"Photos uploaded",accent:"#E91E63"},
@@ -1412,7 +1529,7 @@ function DashboardScreen({entries,comments,openEntry,setView,deleteEntry,onLogou
         ))}
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 360px",gap:32,alignItems:"start"}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 360px",gap:32,alignItems:"start"}}>
         <div>
           <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:t.text,marginBottom:16}}>All entries</h2>
           {entries.map(e=>{
