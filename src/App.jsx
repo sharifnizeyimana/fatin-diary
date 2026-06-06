@@ -542,10 +542,10 @@ function Header({view,setView,goHome,isAdmin,searchQuery,setSearchQuery,searchOp
             );})}
             <button onClick={()=>setSearchOpen(true)} title="Search" style={{padding:"8px 11px",borderRadius:24,border:"1.5px solid transparent",background:"transparent",color:t.text3,cursor:"pointer",fontSize:15,lineHeight:1,transition:"all 0.2s"}}>🔍</button>
             <button onClick={()=>toggleAmbient("rain")} title="Rain ambience" style={circleBtn(ambientMode==="rain","#4FC3F7","#EFF8FF")}>
-              <img src="/src/assets/image/heavy-rain.png" alt="Rain" style={{width:24,height:24,objectFit:"contain"}}/>
+              <span style={{fontSize:20,lineHeight:1}}>🌧️</span>
             </button>
             <button onClick={()=>toggleAmbient("coffee")} title="Coffee ambience" style={circleBtn(ambientMode==="coffee","#D4A843","#FFF8E6")}>
-              <img src="/src/assets/image/coffee.png" alt="Coffee" style={{width:24,height:24,objectFit:"contain"}}/>
+              <span style={{fontSize:20,lineHeight:1}}>☕</span>
             </button>
             <button onClick={()=>toggleAmbient("nature")} title="Nature ambience" style={circleBtn(ambientMode==="nature","#4CAF50","#F1F8E9")}>
               <span style={{fontSize:20,lineHeight:1}}>🌿</span>
