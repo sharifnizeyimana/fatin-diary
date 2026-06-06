@@ -313,9 +313,9 @@ export default function HanaDiary() {
   const coffeeAudioRef = useRef(null);
 
   useEffect(()=>{
-    rainAudioRef.current = new Audio("/src/assets/audio/rain.m4a");
+    rainAudioRef.current = new Audio("/src/assets/audio/rain.mp3");
     rainAudioRef.current.loop = true;
-    coffeeAudioRef.current = new Audio("/src/assets/audio/coffee.m4a");
+    coffeeAudioRef.current = new Audio("/src/assets/audio/coffee.mp3");
     coffeeAudioRef.current.loop = true;
     return ()=>{ rainAudioRef.current?.pause(); coffeeAudioRef.current?.pause(); };
   },[]);

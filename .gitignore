@@ -14,7 +14,6 @@ dist-ssr
 
 # Large audio files (host separately or use Git LFS)
 src/assets/audio/*.m4a
-src/assets/audio/*.mp3
 src/assets/audio/*.wav
 
 # Editor directories and files
