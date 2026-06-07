@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Environment secrets — never commit
+.env
+.env.*
+
 # Large audio files (host separately or use Git LFS)
 src/assets/audio/*.m4a
 src/assets/audio/*.wav

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from "./lib/supabase";
 
 const ADMIN_PASSWORD = "hana2026";
 
@@ -310,17 +311,33 @@ function highlight(text, query) {
   );
 }
 
+// ── DATA MAPPERS ──────────────────────────────────────────────────────────────
+const mapEntry = (row) => ({
+  id: row.id, title: row.title, excerpt: row.excerpt||"", body: row.body||"",
+  category: row.category||"journey", mood: row.mood||"😊 Happy",
+  tags: row.tags||[], image: row.image||null, pinned: row.pinned||false,
+  likes: row.likes||0, readTime: row.read_time||1,
+  date: row.date||new Date().toISOString().slice(0,10), comments: 0,
+});
+const mapComment = (row) => ({
+  id: row.id, entryId: row.entry_id, author: row.author||"",
+  avatar: row.avatar||"", text: row.text||"", likes: row.likes||0,
+  date: row.date||new Date().toISOString().slice(0,10),
+});
+const mapSubscriber = (row) => ({
+  id: row.id, email: row.email, name: row.name||"",
+  active: row.active!==false, date: row.date||new Date().toISOString().slice(0,10),
+});
+
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function HanaDiary() {
   injectFonts();
   const [isAdmin, setIsAdmin] = useState(()=>sessionStorage.getItem("hana_admin")==="true");
   const [view, setView] = useState("home");
-  const [entries, setEntries] = useState(()=>{
-    try{const s=localStorage.getItem("hana_entries");return s?JSON.parse(s):SEED_ENTRIES;}catch{return SEED_ENTRIES;}
-  });
-  const [comments, setComments] = useState(()=>{
-    try{const s=localStorage.getItem("hana_comments");return s?JSON.parse(s):SEED_COMMENTS;}catch{return SEED_COMMENTS;}
-  });
+  const [entries, setEntries] = useState([]);
+  const [comments, setComments] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [dbError, setDbError] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [activeCat, setActiveCat] = useState("all");
   const [likedEntries, setLikedEntries] = useState({});
@@ -373,19 +390,62 @@ export default function HanaDiary() {
     });
   };
 
-  const [subscribers, setSubscribers] = useState(()=>{
-    try{return JSON.parse(localStorage.getItem("hana_subscribers")||"null")||SEED_SUBSCRIBERS;}catch{return SEED_SUBSCRIBERS;}
-  });
+  const [subscribers, setSubscribers] = useState([]);
+  const [authorName, setAuthorName] = useState(()=>localStorage.getItem("hana_author_name")||"Fatin Ajeer Bint Ismeal");
+  const [authorAvatar, setAuthorAvatar] = useState(()=>localStorage.getItem("hana_author_avatar")||null);
+  const updateAuthor = (name, avatar) => {
+    localStorage.setItem("hana_author_name", name);
+    if(avatar) localStorage.setItem("hana_author_avatar", avatar);
+    else localStorage.removeItem("hana_author_avatar");
+    setAuthorName(name);
+    setAuthorAvatar(avatar||null);
+  };
 
-  useEffect(()=>{try{localStorage.setItem("hana_entries",JSON.stringify(entries));}catch{}},[entries]);
-  useEffect(()=>{try{localStorage.setItem("hana_comments",JSON.stringify(comments));}catch{}},[comments]);
-  useEffect(()=>{localStorage.setItem("hana_subscribers",JSON.stringify(subscribers));},[subscribers]);
+  const loadAll = async () => {
+    setLoading(true); setDbError(false);
+    try {
+      const [er, cr, sr] = await Promise.all([
+        supabase.from("entries").select("*").order("created_at",{ascending:false}),
+        supabase.from("comments").select("*").order("created_at",{ascending:true}),
+        supabase.from("subscribers").select("*").order("created_at",{ascending:false}),
+      ]);
+      if(er.error||cr.error||sr.error) throw new Error("load failed");
+      const grouped = {};
+      cr.data?.forEach(c=>{ const mc=mapComment(c); if(!grouped[mc.entryId])grouped[mc.entryId]=[]; grouped[mc.entryId].push(mc); });
+      setEntries((er.data||[]).map(e=>({...mapEntry(e),comments:(grouped[e.id]||[]).length})));
+      setComments(grouped);
+      setSubscribers((sr.data||[]).map(mapSubscriber));
+    } catch(e) { setDbError(true); }
+    finally { setLoading(false); }
+  };
 
-  const addSubscriber=(email,name)=>{
-    if(subscribers.find(s=>s.email===email))return "already";
-    const newSub={id:"s"+Date.now(),email,name:name||"",date:new Date().toISOString().slice(0,10),active:true};
-    setSubscribers(prev=>[newSub,...prev]);
+  useEffect(()=>{
+    loadAll();
+    const channel = supabase.channel("hana_comments")
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"comments"},payload=>{
+        const c = mapComment(payload.new);
+        setComments(prev=>{
+          const existing=prev[c.entryId]||[];
+          if(existing.some(ec=>ec.id===c.id)) return prev;
+          return {...prev,[c.entryId]:[...existing,c]};
+        });
+        setEntries(prev=>prev.map(e=>e.id===c.entryId?{...e,comments:(e.comments||0)+1}:e));
+      })
+      .subscribe();
+    return()=>{ supabase.removeChannel(channel); };
+  },[]);
+
+  const addSubscriber = async (email, name) => {
+    if(subscribers.find(s=>s.email===email)) return "already";
+    const {data,error} = await supabase.from("subscribers").insert([{email,name:name||"",active:true}]).select().single();
+    if(error) return "error";
+    if(data) setSubscribers(prev=>[mapSubscriber(data),...prev]);
     return "success";
+  };
+
+  const removeSubscriber = async (id) => {
+    await supabase.from("subscribers").delete().eq("id",id);
+    setSubscribers(prev=>prev.filter(s=>s.id!==id));
   };
 
   // Hash-based admin route — triggered by navigating to #admin
@@ -423,19 +483,41 @@ export default function HanaDiary() {
   const filteredEntries = activeCat==="all" ? entries : entries.filter(e=>e.category===activeCat);
   const pinned = entries.find(e=>e.pinned);
 
-  const toggleLike = (id)=>{
+  const toggleLike = async (id) => {
+    const entry = entries.find(e=>e.id===id); if(!entry) return;
+    const newLikes = entry.likes + (likedEntries[id]?-1:1);
     setLikedEntries(p=>({...p,[id]:!p[id]}));
-    setEntries(p=>p.map(e=>e.id===id?{...e,likes:e.likes+(likedEntries[id]?-1:1)}:e));
+    setEntries(p=>p.map(e=>e.id===id?{...e,likes:newLikes}:e));
+    await supabase.from("entries").update({likes:newLikes}).eq("id",id);
   };
-  const addEntry = (ne)=>{setEntries(p=>[ne,...p]);setView("home");window.scrollTo(0,0);};
-  const addComment = (eid,text,author)=>{
-    const nc={id:"c"+Date.now(),author,avatar:author.slice(0,2).toUpperCase(),text,date:new Date().toISOString().slice(0,10),likes:0};
-    setComments(p=>({...p,[eid]:[...(p[eid]||[]),nc]}));
-    setEntries(p=>p.map(e=>e.id===eid?{...e,comments:(e.comments||0)+1}:e));
+  const addEntry = async (ne) => {
+    const {error} = await supabase.from("entries").insert([{
+      title:ne.title, excerpt:ne.excerpt, body:ne.body, category:ne.category,
+      mood:ne.mood, tags:ne.tags, image:ne.image||null,
+      pinned:false, likes:0, read_time:ne.readTime, date:ne.date,
+    }]);
+    if(error){ console.error("addEntry:", error); return; }
+    const {data:rows} = await supabase.from("entries").select("*").order("created_at",{ascending:false});
+    if(rows) setEntries(rows.map(e=>({...mapEntry(e),comments:(comments[e.id]||[]).length})));
+    setView("home");
+    window.scrollTo({top:0,behavior:"smooth"});
   };
-  const deleteEntry = (id)=>{setEntries(p=>p.filter(e=>e.id!==id));if(view==="read")goHome();};
+  const addComment = async (entryId, text, author) => {
+    await supabase.from("comments").insert([{
+      entry_id:entryId, author, avatar:author.slice(0,2).toUpperCase(),
+      text, date:new Date().toISOString().slice(0,10), likes:0,
+    }]);
+    // state update handled by realtime subscription
+  };
+  const deleteEntry = async (id) => {
+    await supabase.from("entries").delete().eq("id",id);
+    setEntries(p=>p.filter(e=>e.id!==id));
+    if(view==="read") goHome();
+  };
 
   if(view==="adminLogin") return <AdminLoginScreen onLogin={handleAdminLogin}/>;
+  if(loading) return <LoadingScreen darkMode={darkMode}/>;
+  if(dbError) return <ErrorScreen darkMode={darkMode} onRetry={loadAll}/>;
 
   const t = THEME[darkMode?"dark":"light"];
   const navTo=(v)=>{setView(v);setMobileMenuOpen(false);window.scrollTo({top:0,behavior:"smooth"});};
@@ -447,14 +529,36 @@ export default function HanaDiary() {
       {mobileMenuOpen&&<HamburgerSheet darkMode={darkMode} toggleDark={toggleDark} ambientMode={ambientMode} toggleAmbient={toggleAmbient} isAdmin={isAdmin} goHome={()=>{goHome();setMobileMenuOpen(false);}} navTo={navTo} onClose={()=>setMobileMenuOpen(false)} t={t}/>}
       <div style={{filter:ambientMode==="rain"?"brightness(0.94) saturate(0.88) hue-rotate(8deg)":ambientMode==="coffee"?"brightness(1.02) saturate(1.1) sepia(0.08)":ambientMode==="nature"?"brightness(1.03) saturate(1.2) hue-rotate(-15deg)":"none",transition:"filter 0.8s ease"}}>
         <Header view={view} setView={setView} goHome={goHome} isAdmin={isAdmin} searchQuery={searchQuery} setSearchQuery={setSearchQuery} searchOpen={searchOpen} setSearchOpen={setSearchOpen} entries={entries} openEntry={openEntry} ambientMode={ambientMode} toggleAmbient={toggleAmbient} darkMode={darkMode} toggleDark={toggleDark} isMobile={isMobile} headerHidden={headerHidden} setMobileMenuOpen={setMobileMenuOpen}/>
-        {view==="home"&&<HomeScreen entries={filteredEntries} allEntries={entries} pinned={pinned} activeCat={activeCat} setActiveCat={setActiveCat} openEntry={openEntry} toggleLike={toggleLike} likedEntries={likedEntries} setView={setView} setLightboxImg={setLightboxImg} searchQuery={searchQuery} setSearchOpen={setSearchOpen} darkMode={darkMode} addSubscriber={addSubscriber} subscribers={subscribers} isMobile={isMobile}/>}
-        {view==="read"&&selectedEntry&&<ReadingScreen entry={selectedEntry} comments={comments[selectedEntry.id]||[]} goHome={goHome} toggleLike={toggleLike} likedEntries={likedEntries} addComment={addComment} openEntry={openEntry} entries={entries} deleteEntry={deleteEntry} setLightboxImg={setLightboxImg} darkMode={darkMode} isMobile={isMobile}/>}
+        {view==="home"&&<HomeScreen entries={filteredEntries} allEntries={entries} pinned={pinned} activeCat={activeCat} setActiveCat={setActiveCat} openEntry={openEntry} toggleLike={toggleLike} likedEntries={likedEntries} setView={setView} setLightboxImg={setLightboxImg} searchQuery={searchQuery} setSearchOpen={setSearchOpen} darkMode={darkMode} addSubscriber={addSubscriber} subscribers={subscribers} isMobile={isMobile} authorName={authorName} authorAvatar={authorAvatar}/>}
+        {view==="read"&&selectedEntry&&<ReadingScreen entry={selectedEntry} comments={comments[selectedEntry.id]||[]} goHome={goHome} toggleLike={toggleLike} likedEntries={likedEntries} addComment={addComment} openEntry={openEntry} entries={entries} deleteEntry={deleteEntry} setLightboxImg={setLightboxImg} darkMode={darkMode} isMobile={isMobile} authorName={authorName} authorAvatar={authorAvatar}/>}
         {view==="write"&&isAdmin&&<WriteScreen goHome={goHome} addEntry={addEntry} darkMode={darkMode} isMobile={isMobile}/>}
-        {view==="profile"&&<ProfileScreen entries={entries} openEntry={openEntry} setView={setView} setLightboxImg={setLightboxImg} darkMode={darkMode} isMobile={isMobile}/>}
-        {view==="dashboard"&&isAdmin&&<DashboardScreen entries={entries} comments={comments} openEntry={openEntry} setView={setView} deleteEntry={deleteEntry} onLogout={handleLogout} darkMode={darkMode} subscribers={subscribers} setSubscribers={setSubscribers} isMobile={isMobile}/>}
+        {view==="profile"&&<ProfileScreen entries={entries} openEntry={openEntry} setView={setView} setLightboxImg={setLightboxImg} darkMode={darkMode} isMobile={isMobile} authorName={authorName} authorAvatar={authorAvatar} isAdmin={isAdmin} updateAuthor={updateAuthor}/>}
+        {view==="dashboard"&&isAdmin&&<DashboardScreen entries={entries} comments={comments} openEntry={openEntry} setView={setView} deleteEntry={deleteEntry} onLogout={handleLogout} darkMode={darkMode} subscribers={subscribers} removeSubscriber={removeSubscriber} isMobile={isMobile}/>}
         {lightboxImg&&<Lightbox src={lightboxImg} onClose={()=>setLightboxImg(null)}/>}
       </div>
       {isMobile&&<BottomNav view={view} goHome={goHome} navTo={navTo} isAdmin={isAdmin} setSearchOpen={setSearchOpen} darkMode={darkMode} t={t}/>}
+    </div>
+  );
+}
+
+// ── LOADING / ERROR ───────────────────────────────────────────────────────────
+function LoadingScreen({darkMode}){
+  const t=THEME[darkMode?"dark":"light"];
+  return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:20,background:t.bg}}>
+      <div style={{fontSize:52,animation:"hanaOrb 1.4s ease-in-out infinite"}}>🌺</div>
+      <p style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:t.rose,margin:0}}>Loading her stories…</p>
+    </div>
+  );
+}
+function ErrorScreen({darkMode,onRetry}){
+  const t=THEME[darkMode?"dark":"light"];
+  return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,background:t.bg,padding:24,textAlign:"center"}}>
+      <div style={{fontSize:48}}>😔</div>
+      <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:t.text,margin:0}}>Could not reach the database</h2>
+      <p style={{fontSize:14,color:t.text3,maxWidth:380,margin:0}}>Check your Supabase configuration in <code>.env</code> or your internet connection.</p>
+      <button onClick={onRetry} style={{marginTop:8,padding:"12px 32px",borderRadius:50,background:"linear-gradient(135deg,#C2185B,#E91E63)",color:"#fff",border:"none",cursor:"pointer",fontSize:15,fontFamily:"'DM Sans',sans-serif",fontWeight:600}}>Try again</button>
     </div>
   );
 }
@@ -865,7 +969,14 @@ function NewsletterSidebarCard({addSubscriber,darkMode,subscribers}){
 }
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,toggleLike,likedEntries,setView,setLightboxImg,searchQuery,setSearchOpen,darkMode,addSubscriber,subscribers,isMobile}){
+function AuthorAvatar({avatar,name,size=40,extraStyle={}}){
+  const initial=(name||"?").charAt(0).toUpperCase();
+  return avatar
+    ?<img src={avatar} alt={name} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",flexShrink:0,...extraStyle}}/>
+    :<div style={{width:size,height:size,borderRadius:"50%",background:"linear-gradient(135deg,#C2185B,#E91E63)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:Math.round(size*0.4),fontFamily:"'Playfair Display',serif",flexShrink:0,...extraStyle}}>{initial}</div>;
+}
+
+function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,toggleLike,likedEntries,setView,setLightboxImg,searchQuery,setSearchOpen,darkMode,addSubscriber,subscribers,isMobile,authorName,authorAvatar}){
   const t=THEME[darkMode?"dark":"light"];
   return(
     <div>
@@ -897,7 +1008,7 @@ function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,
                         <p style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.65)",marginBottom:8}}>✦ Pinned story</p>
                         <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?18:22,color:"#fff",lineHeight:1.3,marginBottom:8}}>{pinned.title}</h2>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <span style={{fontSize:13,color:"rgba(255,255,255,0.75)"}}>Nurul · {pinned.readTime} min read</span>
+                          <span style={{fontSize:13,color:"rgba(255,255,255,0.75)"}}>{authorName} · {pinned.readTime} min read</span>
                           <div style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"5px 16px",fontSize:13,color:"#fff"}}>Read →</div>
                         </div>
                       </div>
@@ -908,7 +1019,7 @@ function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,
                       <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?18:24,color:"#fff",lineHeight:1.3,marginBottom:10}}>{pinned.title}</h2>
                       <p style={{fontSize:14,color:"rgba(255,255,255,0.75)",lineHeight:1.65,marginBottom:18}}>{pinned.excerpt}</p>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                        <span style={{fontSize:13,color:"rgba(255,255,255,0.7)"}}>Nurul · {pinned.readTime} min read</span>
+                        <span style={{fontSize:13,color:"rgba(255,255,255,0.7)"}}>{authorName} · {pinned.readTime} min read</span>
                         <div style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"6px 18px",fontSize:13,color:"#fff"}}>Read →</div>
                       </div>
                     </div>
@@ -957,7 +1068,7 @@ function HomeScreen({entries,allEntries,pinned,activeCat,setActiveCat,openEntry,
           {/* Sidebar — hidden on mobile */}
           {!isMobile&&(
             <aside style={S.sidebar}>
-              <SidebarProfile allEntries={allEntries} darkMode={darkMode}/>
+              <SidebarProfile allEntries={allEntries} darkMode={darkMode} authorName={authorName} authorAvatar={authorAvatar}/>
               <NewsletterSidebarCard addSubscriber={addSubscriber} darkMode={darkMode} subscribers={subscribers}/>
               <PhotoGallerySidebar allEntries={allEntries} setLightboxImg={setLightboxImg} darkMode={darkMode}/>
               <SidebarTags allEntries={allEntries} darkMode={darkMode}/>
@@ -1035,13 +1146,15 @@ function PhotoGallerySidebar({allEntries,setLightboxImg,darkMode}){
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
-function SidebarProfile({allEntries,darkMode}){
+function SidebarProfile({allEntries,darkMode,authorName,authorAvatar}){
   const t=THEME[darkMode?"dark":"light"];
   const totalLikes=allEntries.reduce((s,e)=>s+(e.likes||0),0);
   return(
     <div style={{background:t.surface,borderRadius:20,border:`1px solid ${t.border}`,padding:"20px 22px",textAlign:"center",transition:"background 0.3s,border-color 0.3s"}}>
-      <div style={{width:72,height:72,borderRadius:"50%",background:"linear-gradient(135deg,#C2185B,#E91E63)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",fontSize:28,fontFamily:"'Playfair Display',serif",color:"#fff"}}>N</div>
-      <p style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:t.text,marginBottom:4}}>Nurul</p>
+      <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+        <AuthorAvatar avatar={authorAvatar} name={authorName} size={72}/>
+      </div>
+      <p style={{fontFamily:"'Playfair Display',serif",fontSize:18,color:t.text,marginBottom:4}}>{authorName}</p>
       <p style={{fontSize:13,color:t.text3,marginBottom:16}}>Malaysian · Writer · Dreamer</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
         {[{n:allEntries.length,l:"entries"},{n:totalLikes,l:"likes"},{n:allEntries.reduce((s,e)=>s+(e.comments||0),0),l:"comments"}].map((s,i)=>(
@@ -1103,7 +1216,7 @@ function ShareBar({entry,darkMode}){
   };
 
   const shareX=()=>{
-    const text=encodeURIComponent('"'+entry.title+'" by Nurul on Fatin·diary');
+    const text=encodeURIComponent('"'+entry.title+'" by '+authorName+' on Fatin·diary');
     const url=encodeURIComponent(shareUrl());
     window.open("https://twitter.com/intent/tweet?text="+text+"&url="+url,"_blank");
   };
@@ -1149,7 +1262,7 @@ function ShareBar({entry,darkMode}){
 }
 
 // ── READING SCREEN ────────────────────────────────────────────────────────────
-function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment,openEntry,entries,deleteEntry,setLightboxImg,darkMode,isMobile}){
+function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment,openEntry,entries,deleteEntry,setLightboxImg,darkMode,isMobile,authorName,authorAvatar}){
   const t=THEME[darkMode?"dark":"light"];
   const [newComment,setNewComment]=useState("");
   const [commenterName,setCommenterName]=useState(()=>localStorage.getItem("hana_commenter_name")||"");
@@ -1179,8 +1292,8 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
             <span style={{...S.entryTag(entry.category),display:"inline-block",marginBottom:12,background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)"}}>{CATEGORIES.find(c=>c.id===entry.category)?.emoji} {CATEGORIES.find(c=>c.id===entry.category)?.label}</span>
             <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(24px,4vw,40px)",color:"#fff",lineHeight:1.2,marginBottom:12,textShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>{entry.title}</h1>
             <div style={{display:"flex",alignItems:"center",gap:16}}>
-              <div style={{width:34,height:34,borderRadius:"50%",background:"rgba(255,255,255,0.2)",border:"2px solid rgba(255,255,255,0.4)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontFamily:"'Playfair Display',serif"}}>N</div>
-              <span style={{fontSize:13,color:"rgba(255,255,255,0.85)"}}>Nurul · {new Date(entry.date).toLocaleDateString("en-MY",{day:"numeric",month:"long",year:"numeric"})} · {entry.readTime} min read</span>
+              <AuthorAvatar avatar={authorAvatar} name={authorName} size={34} extraStyle={{border:"2px solid rgba(255,255,255,0.4)"}}/>
+              <span style={{fontSize:13,color:"rgba(255,255,255,0.85)"}}>{authorName} · {new Date(entry.date).toLocaleDateString("en-MY",{day:"numeric",month:"long",year:"numeric"})} · {entry.readTime} min read</span>
               <span style={{...S.moodBadge,background:"rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.9)",border:"1px solid rgba(255,255,255,0.2)"}}>{entry.mood}</span>
             </div>
             <div style={{position:"absolute",bottom:16,right:24,fontSize:12,color:"rgba(255,255,255,0.5)"}}>🔍 Click to enlarge</div>
@@ -1194,9 +1307,9 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
             <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:"clamp(26px,4vw,40px)",color:t.text,lineHeight:1.25,marginBottom:16}}>{entry.title}</h1>
             <p style={{fontSize:17,color:t.text2,lineHeight:1.7,marginBottom:24}}><em style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic"}}>{entry.excerpt}</em></p>
             <div style={{display:"flex",alignItems:"center",gap:16,paddingBottom:24}}>
-              <div style={{width:40,height:40,borderRadius:"50%",background:"linear-gradient(135deg,#C2185B,#E91E63)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontFamily:"'Playfair Display',serif"}}>N</div>
+              <AuthorAvatar avatar={authorAvatar} name={authorName} size={40}/>
               <div>
-                <p style={{fontSize:14,fontWeight:500,color:t.text}}>Nurul</p>
+                <p style={{fontSize:14,fontWeight:500,color:t.text}}>{authorName}</p>
                 <p style={{fontSize:12,color:t.text3}}>{new Date(entry.date).toLocaleDateString("en-MY",{day:"numeric",month:"long",year:"numeric"})} · {entry.readTime} min read</p>
               </div>
               <span style={{fontSize:12,color:t.text3,background:t.surface2,border:`1px solid ${t.border}`,borderRadius:12,padding:"3px 10px"}}>{entry.mood}</span>
@@ -1276,7 +1389,7 @@ function ReadingScreen({entry,comments,goHome,toggleLike,likedEntries,addComment
 
         {related.length>0&&(
           <div>
-            <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:t.text,marginBottom:16}}>More from Nurul</h3>
+            <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:t.text,marginBottom:16}}>More from {authorName}</h3>
             <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:16}}>
               {related.map(e=>(
                 <div key={e.id} style={{background:t.surface,border:`1px solid ${t.border}`,borderRadius:16,overflow:"hidden",cursor:"pointer"}} onClick={()=>openEntry(e)}>
@@ -1397,20 +1510,26 @@ function WriteScreen({goHome,addEntry,darkMode,isMobile}){
 }
 
 // ── PROFILE SCREEN ────────────────────────────────────────────────────────────
-function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode,isMobile}){
+function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode,isMobile,authorName,authorAvatar,isAdmin,updateAuthor}){
   const t=THEME[darkMode?"dark":"light"];
   const totalLikes=entries.reduce((s,e)=>s+(e.likes||0),0);
   const totalComments=entries.reduce((s,e)=>s+(e.comments||0),0);
   const byCategory=CATEGORIES.slice(1).map(c=>({...c,count:entries.filter(e=>e.category===c.id).length}));
   const photos=entries.filter(e=>e.image);
+  const [editing,setEditing]=useState(false);
+  const [draftName,setDraftName]=useState(authorName);
+  const [draftAvatar,setDraftAvatar]=useState(authorAvatar);
+  const handleSave=()=>{if(draftName.trim()){updateAuthor(draftName.trim(),draftAvatar);setEditing(false);}};
 
   return(
     <div>
       <div style={{...S.profileHero,padding:isMobile?"40px 16px 60px":"48px 24px 80px"}}>
         <div style={{position:"absolute",inset:0,backgroundImage:"radial-gradient(circle at 60% 40%,rgba(255,255,255,0.06) 0%,transparent 60%)"}}/>
         <div style={{position:"relative",zIndex:1}}>
-          <div style={{...S.avatar,width:isMobile?80:100,height:isMobile?80:100,fontSize:isMobile?28:36}}>N</div>
-          <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?24:32,color:"#fff",marginBottom:6}}>Nurul</h1>
+          <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+            <AuthorAvatar avatar={authorAvatar} name={authorName} size={isMobile?80:100}/>
+          </div>
+          <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?24:32,color:"#fff",marginBottom:6}}>{authorName}</h1>
           <p style={{fontSize:isMobile?13:15,color:"rgba(255,255,255,0.75)",marginBottom:20}}>Malaysian · Writer · Dreamer · Life documenter</p>
           {!isMobile&&<p style={{fontSize:14,color:"rgba(255,255,255,0.65)",maxWidth:480,margin:"0 auto 24px",lineHeight:1.7}}>Sharing my Malaysian journey — the food, the stories, the hard days, and the beautiful ordinary moments.</p>}
           <div style={{display:"inline-flex",gap:isMobile?16:24,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:16,padding:isMobile?"12px 20px":"14px 28px"}}>
@@ -1421,6 +1540,23 @@ function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode,isMobi
               </div>
             ))}
           </div>
+
+          {/* Edit profile — admin only */}
+          {isAdmin&&!editing&&(
+            <button onClick={()=>{setDraftName(authorName);setDraftAvatar(authorAvatar);setEditing(true);}} style={{marginTop:18,padding:"8px 22px",borderRadius:50,background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",color:"#fff",cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>✏️ Edit profile</button>
+          )}
+          {isAdmin&&editing&&(
+            <div style={{marginTop:20,background:"rgba(0,0,0,0.35)",borderRadius:20,padding:20,maxWidth:360,margin:"20px auto 0",border:"1px solid rgba(255,255,255,0.2)",textAlign:"left"}}>
+              <p style={{fontSize:12,color:"rgba(255,255,255,0.7)",marginBottom:8,textTransform:"uppercase",letterSpacing:0.5}}>Profile photo</p>
+              <PhotoUploader value={draftAvatar} onChange={setDraftAvatar} compact/>
+              <p style={{fontSize:12,color:"rgba(255,255,255,0.7)",margin:"16px 0 8px",textTransform:"uppercase",letterSpacing:0.5}}>Display name</p>
+              <input value={draftName} onChange={e=>setDraftName(e.target.value)} style={{width:"100%",padding:"10px 14px",borderRadius:12,border:"1px solid rgba(255,255,255,0.3)",background:"rgba(255,255,255,0.1)",color:"#fff",fontFamily:"'DM Sans',sans-serif",fontSize:15,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{display:"flex",gap:10,marginTop:16}}>
+                <button onClick={handleSave} style={{padding:"10px 24px",borderRadius:50,background:"linear-gradient(135deg,#C2185B,#E91E63)",border:"none",color:"#fff",cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif",fontWeight:600}}>Save</button>
+                <button onClick={()=>setEditing(false)} style={{padding:"10px 24px",borderRadius:50,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.3)",color:"#fff",cursor:"pointer",fontSize:14,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1483,7 +1619,7 @@ function ProfileScreen({entries,openEntry,setView,setLightboxImg,darkMode,isMobi
 }
 
 // ── DASHBOARD SCREEN ──────────────────────────────────────────────────────────
-function DashboardScreen({entries,comments,openEntry,setView,deleteEntry,onLogout,darkMode,subscribers,setSubscribers,isMobile}){
+function DashboardScreen({entries,comments,openEntry,setView,deleteEntry,onLogout,darkMode,subscribers,removeSubscriber,isMobile}){
   const t=THEME[darkMode?"dark":"light"];
   const totalLikes=entries.reduce((s,e)=>s+(e.likes||0),0);
   const totalComments=entries.reduce((s,e)=>s+(e.comments||0),0);
@@ -1613,7 +1749,7 @@ function DashboardScreen({entries,comments,openEntry,setView,deleteEntry,onLogou
                     <span style={{width:6,height:6,borderRadius:"50%",background:"#4CAF50",display:"inline-block"}}/>Active
                   </span>
                   <button
-                    onClick={()=>{if(window.confirm("Remove "+sub.email+" from subscribers?"))setSubscribers(prev=>prev.filter(s=>s.id!==sub.id));}}
+                    onClick={()=>{if(window.confirm("Remove "+sub.email+" from subscribers?"))removeSubscriber(sub.id);}}
                     style={{width:24,height:24,borderRadius:"50%",background:t.surface2,border:`1px solid ${t.border}`,color:t.text3,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:0}}
                   >×</button>
                 </div>
