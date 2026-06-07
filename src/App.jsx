@@ -24,8 +24,8 @@ const injectFonts = () => {
   if (!document.querySelector("meta[name=viewport]")) {
     const mv=document.createElement("meta");mv.name="viewport";mv.content="width=device-width, initial-scale=1, maximum-scale=1";document.head.appendChild(mv);
   }
-  if (!document.querySelector("meta[name=apple-mobile-web-app-capable]")) {
-    const m1=document.createElement("meta");m1.name="apple-mobile-web-app-capable";m1.content="yes";document.head.appendChild(m1);
+  if (!document.querySelector("meta[name=mobile-web-app-capable]")) {
+    const m1=document.createElement("meta");m1.name="mobile-web-app-capable";m1.content="yes";document.head.appendChild(m1);
     const m2=document.createElement("meta");m2.name="apple-mobile-web-app-status-bar-style";m2.content="default";document.head.appendChild(m2);
     const m3=document.createElement("meta");m3.name="theme-color";m3.content="#C2185B";document.head.appendChild(m3);
   }
@@ -409,13 +409,16 @@ export default function HanaDiary() {
         supabase.from("comments").select("*").order("created_at",{ascending:true}),
         supabase.from("subscribers").select("*").order("created_at",{ascending:false}),
       ]);
+      if(er.error) console.error("entries:", er.error.message, er.error);
+      if(cr.error) console.error("comments:", cr.error.message, cr.error);
+      if(sr.error) console.error("subscribers:", sr.error.message, sr.error);
       if(er.error||cr.error||sr.error) throw new Error("load failed");
       const grouped = {};
       cr.data?.forEach(c=>{ const mc=mapComment(c); if(!grouped[mc.entryId])grouped[mc.entryId]=[]; grouped[mc.entryId].push(mc); });
       setEntries((er.data||[]).map(e=>({...mapEntry(e),comments:(grouped[e.id]||[]).length})));
       setComments(grouped);
       setSubscribers((sr.data||[]).map(mapSubscriber));
-    } catch(e) { setDbError(true); }
+    } catch(e) { console.error("loadAll failed:", e.message); setDbError(true); }
     finally { setLoading(false); }
   };
 
